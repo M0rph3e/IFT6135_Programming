@@ -1,1 +1,4 @@
 .ipynb_checkpoints/
+__pycache__/
+*.npz
+__init__.py
