@@ -75,27 +75,32 @@ class BassetDataset(Dataset):
         # Sequence & Target
         output = {'sequence': None, 'target': None}
 
-        # WRITE CODE HERE
-
+        # WRITE CODE 
+        # print(self.inputs[idx].shape)
+        # print(self.inputs[idx].reshape(1,600,4).shape)
+        output['sequence'] = torch.from_numpy(self.inputs[idx].astype(np.float32)).permute(1,2,0) #(1,2,0) cuz we switch from (4, 1, 600) to (1, 600, 4)
+        output['target'] = torch.from_numpy(self.outputs[idx].astype(np.float32))
         return output
 
     def __len__(self):
         # WRITE CODE HERE
-        return 0
+        return len(self.inputs)
 
     def get_seq_len(self):
         """
         Answer to Q1 part 2
         """
         # WRITE CODE HERE
-        return 0
+        # print(len(self.__getitem__(0)['sequence'][0]))
+        return  len(self.__getitem__(0)['sequence'][0])
 
     def is_equivalent(self):
         """
         Answer to Q1 part 3
         """
         # WRITE CODE HERE
-        return 0
+        t_v = self.get_seq_len()
+        return self.__getitem__(0)['sequence'].shape==(1,t_v, 4)
 
 
 class Basset(nn.Module):
@@ -108,27 +113,28 @@ class Basset(nn.Module):
     def __init__(self):
         super(Basset, self).__init__()
 
-        self.dropout = ?  # should be float
+        self.dropout = 0.3  # should be float
+        self.drop = nn.Dropout(self.dropout)
         self.num_cell_types = 164
 
-        self.conv1 = nn.Conv2d(1, 300, (19, ?), stride=(1, 1), padding=(9, 0))
-        self.conv2 = nn.Conv2d(300, ?, (?, 1), stride=(1, 1), padding=(?, 0))
-        self.conv3 = nn.Conv2d(?, 200, (?, 1), stride=(1, 1), padding=(4, 0))
+        self.conv1 = nn.Conv2d(1, 300, (19, 4), stride=(1, 1), padding=(9, 0))
+        self.conv2 = nn.Conv2d(300, 200, (11, 1), stride=(1, 1), padding=(5, 0))
+        self.conv3 = nn.Conv2d(200, 200, (7, 1), stride=(1, 1), padding=(4, 0))
 
         self.bn1 = nn.BatchNorm2d(300)
-        self.bn2 = nn.BatchNorm2d(?)
+        self.bn2 = nn.BatchNorm2d(200)
         self.bn3 = nn.BatchNorm2d(200)
         self.maxpool1 = nn.MaxPool2d((3, 1))
-        self.maxpool2 = nn.MaxPool2d((?, 1))
-        self.maxpool3 = nn.MaxPool2d((?, 1))
+        self.maxpool2 = nn.MaxPool2d((4, 1))
+        self.maxpool3 = nn.MaxPool2d((4, 1))
 
-        self.fc1 = nn.Linear(13*200, ?)
-        self.bn4 = nn.BatchNorm1d(?)
+        self.fc1 = nn.Linear(13*200, 1000)
+        self.bn4 = nn.BatchNorm1d(1000)
 
-        self.fc2 = nn.Linear(1000, ?)
-        self.bn5 = nn.BatchNorm1d(?)
+        self.fc2 = nn.Linear(1000, 1000)
+        self.bn5 = nn.BatchNorm1d(1000)
 
-        self.fc3 = nn.Linear(?, self.num_cell_types)
+        self.fc3 = nn.Linear(1000, self.num_cell_types)
 
     def forward(self, x):
         """
@@ -141,9 +147,46 @@ class Basset(nn.Module):
             * There are additional batch norm layers defined in `__init__`
               which you will want to use on your fully connected layers
         """
-
+        #From https://genome.cshlp.org/content/suppl/2016/06/10/gr.200535.115.DC1/Supplementary_Figures.pdf, P.14
         # WRITE CODE HERE
-        return 0
+        #print(" Shape of X at the beginning : ", x.shape)
+       
+        #ConvNet
+        x= self.conv1(x)
+        x= self.bn1(x)
+        x= F.relu(x)
+        x= self.maxpool1(x)
+
+        x= self.conv2(x)
+        x= self.bn2(x)
+        x= F.relu(x)
+        x= self.maxpool2(x)
+
+        x= self.conv3(x)
+        x=self.bn3(x)
+        x= F.relu(x)
+        x = self.maxpool3(x)
+
+        #print("Shape of X after the ConvNet (before flatten) : ", x.shape)
+        #FLatten !!
+        
+        x= torch.flatten(x, start_dim=1)
+
+        #print("Shape of X after the ConvNet (after flatten) : ", x.shape)
+        #Fully Connected network
+        x= self.fc1(x)
+        x = self.bn4(x)
+        x= self.drop(x)
+        x= F.relu(x)
+        
+        x= self.fc2(x)
+        x = self.bn5(x)
+        x= self.drop(x)
+        x= F.relu(x)
+
+        #output structure
+        x = self.fc3(x)
+        return x
 
 
 def compute_fpr_tpr(y_true, y_pred):
@@ -158,7 +201,15 @@ def compute_fpr_tpr(y_true, y_pred):
     output = {'fpr': 0., 'tpr': 0.}
 
     # WRITE CODE HERE
+    # from https://stackoverflow.com/questions/61321778/how-to-calculate-tpr-and-fpr-in-python-without-using-sklearn
+    fp = np.sum((y_pred == 1) & (y_true == 0))
+    tp = np.sum((y_pred == 1) & (y_true == 1))
 
+    fn = np.sum((y_pred == 0) & (y_true == 1))
+    tn = np.sum((y_pred == 0) & (y_true == 0))
+
+    output['fpr'] = fp / (fp + tn)
+    output['tpr'] = tp / (tp + fn)
     return output
 
 
@@ -181,6 +232,20 @@ def compute_fpr_tpr_dumb_model():
     output = {'fpr_list': [], 'tpr_list': []}
 
     # WRITE CODE HERE
+    #simulate a dumb model on 1000 samples
+    s=1000
+    target = np.random.randint(2, size=s)
+    pred = np.random.uniform(low=0,high=1,size=s)
+    r = np.arange(start=0,stop=1,step=0.05,dtype=float) # threshold range
+    #  print(r)
+    #Compute tpr and fpr
+    for k in r:
+        pred_thresh = np.where(pred >=k,1,0)
+        #print(pred_thresh.dtype)
+        out = compute_fpr_tpr(target, pred_thresh)
+        output['fpr_list'].append(out['fpr'])
+        output['tpr_list'].append(out['tpr'])
+    
 
     return output
 
@@ -203,7 +268,21 @@ def compute_fpr_tpr_smart_model():
     output = {'fpr_list': [], 'tpr_list': []}
 
     # WRITE CODE HERE
+    #simulate smart model on 1000 range
+    s=1000
+    target = np.random.randint(2, size=s)
+    positive_case = np.random.uniform(low=0.4,high=1,size=s)*(target) #mult to get only positive
+    negative_case = np.random.uniform(low=0,high=0.6,size=s) *(1-target) #same for negative
+    pred = positive_case+negative_case #merge
 
+    r = np.arange(start=0,stop=1,step=0.05,dtype=float) # threshold range
+    for k in r:
+        pred_thresh = np.where(pred >=k,1,0)
+        #print(pred_thresh.dtype)
+        out = compute_fpr_tpr(target, pred_thresh)
+        output['fpr_list'].append(out['fpr'])
+        output['tpr_list'].append(out['tpr'])
+    
     return output
 
 
@@ -218,7 +297,16 @@ def compute_auc_both_models():
     output = {'auc_dumb_model': 0., 'auc_smart_model': 0.}
 
     # WRITE CODE HERE
+    s=1000
+    target = np.random.randint(2, size=s)
 
+    dumb_values = np.random.uniform(low=0,high=1,size=s)
+    positive_case = np.random.uniform(low=0.4,high=1,size=s)*(target) #mult to get only positive
+    negative_case = np.random.uniform(low=0,high=0.6,size=s) *(1-target) #same for negative
+    smart_values= positive_case+negative_case
+    
+    output['auc_dumb_model'] = compute_auc(target,dumb_values)['auc']
+    output['auc_smart_model'] = compute_auc(target,smart_values)['auc']
     return output
 
 
@@ -237,7 +325,30 @@ def compute_auc_untrained_model(model, dataloader, device):
     output = {'auc': 0.}
 
     # WRITE CODE HERE
+    # print(type(model))
+    # print(type(dataloader))
+    # print(type(device))
 
+    model = model.to(device)
+    model.eval()
+    y_pred = torch.Tensor().to(device)
+    y_true = torch.Tensor().to(device)
+
+    #get true and pred from dataloader
+    for i, batch in enumerate(dataloader):
+        with torch.no_grad():
+            sequence = batch['sequence'].to(device) #to device if we are in CPU/GPU
+            targets = batch['target'].to(device) #to device if we are in CPU/GPU
+            act = torch.sigmoid(model(sequence))
+            y_pred = torch.cat((y_pred, act))
+            y_true = torch.cat((y_true,targets))
+
+    #apply output activation 
+    
+    # print(type(act))
+    # print(type(targets))
+    # AHHHHH : https://stackoverflow.com/questions/49768306/pytorch-tensor-to-numpy-array
+    output['auc'] = compute_auc(y_true.detach().cpu().numpy().flatten(),y_pred.detach().cpu().numpy().flatten())['auc']
     return output
 
 
@@ -255,7 +366,44 @@ def compute_auc(y_true, y_model):
     output = {'auc': 0.}
 
     # WRITE CODE HERE
+    #compute fpr and tpr the same way as before
+    target = y_true
+    pred = y_model
+    fpr_tpr_list  = {'fpr_list': [], 'tpr_list': []}
+    r = np.arange(start=0,stop=1,step=0.05,dtype=float) # threshold range
+    for k in r:
+        pred_thresh = np.where(pred >=k,1,0)
+        #print(pred_thresh.dtype)
+        out = compute_fpr_tpr(target, pred_thresh)
+        fpr_tpr_list['fpr_list'].append(out['fpr'])
+        fpr_tpr_list['tpr_list'].append(out['tpr'])
 
+    fprs= fpr_tpr_list['fpr_list']
+    tprs= fpr_tpr_list['tpr_list']
+    #print(type(fprs))
+    #np.trapz doesn't work (F*CK IT) so I'll use left and right Riemann's sum : (https://www.khanacademy.org/math/ap-calculus-ab/ab-integration-new/ab-6-2/a/left-and-right-riemann-sums) 
+    #Compute left Riemann sum
+    assert(len(fprs)==len(tprs))
+    #get left Riemann
+    left=0.
+    for i in range(0,len(fprs)-1):
+        delta= np.abs(fprs[i] - fprs[i+1])
+        height = tprs[i]
+        #print("Width : " + width + " Heigth : "+ height )
+        left+=delta*height
+
+    #print("left : ",left)
+    #get right Riemann
+    right=0.
+    for i in range(1,len(fprs)):
+        delta= np.abs(fprs[i-1] - fprs[i])
+        height = tprs[i]
+        #print("Width : " + width + " Heigth : "+ height )
+        right+=delta*height
+
+    #print("right : ",right)
+    output['auc'] = np.abs((left+right))/2 #abs cuz we have some negative values
+    #print("Output : ", output['auc'])
     return output
 
 
@@ -266,7 +414,7 @@ def get_critereon():
     """
 
     # WRITE CODE HERE
-
+    critereon = nn.BCEWithLogitsLoss()
     return critereon
 
 
@@ -296,6 +444,47 @@ def train_loop(model, train_dataloader, device, optimizer, criterion):
               'total_loss': 0.}
 
     # WRITE CODE HERE
+    cuda = torch.cuda.is_available()
+    if cuda:
+        print('CUDA is available')
+    else:
+        print('CUDA is not available')
+    train_loss  =0.
+
+    y_pred = torch.Tensor().to(device)
+    y_true = torch.Tensor().to(device)
+
+    model.train() # call train
+    #loop through dataset
+    for i, batch in enumerate(train_dataloader):
+        optimizer.zero_grad()
+
+        sequence = batch['sequence'].to(device) #data (features)
+        targets = batch['target'].to(device)#labels
+
+        #output of declared layers
+        out = model(sequence)
+        assert(len(out)==len(targets))
+        loss = criterion(out,targets)
+        
+        #accumulate gradient (backprop)
+        loss.backward()
+
+        optimizer.step() #update
+
+        train_loss+=loss.item() #item get the loss value
+        y_true = torch.cat((y_true, targets)) #labels
+
+        #don't forget sigmoid
+        out = torch.sigmoid(out)
+        y_pred =torch.cat((y_pred,out))
+
+    # print(type(y_pred))
+    # print(type(y_true))
+    # print(type(train_loss))
+
+    output['total_score'] = compute_auc(y_true.detach().cpu().numpy().flatten(),y_pred.detach().cpu().numpy().flatten())['auc']
+    output['total_loss'] = train_loss
 
     return output['total_score'], output['total_loss']
 
@@ -322,5 +511,34 @@ def valid_loop(model, valid_dataloader, device, optimizer, criterion):
               'total_loss': 0.}
 
     # WRITE CODE HERE
+    valid_loss = 0.
+    y_pred = torch.Tensor().to(device)
+    y_true = torch.Tensor().to(device)
 
+    model.eval() # call eval
+    for i, batch in enumerate(valid_dataloader):
+        optimizer.zero_grad()
+
+        sequence = batch['sequence'].to(device) #data (features)
+        targets = batch['target'].to(device)#labels
+
+        #output of declared layers
+        out = model(sequence)
+        assert(len(out)==len(targets))
+        loss = criterion(out,targets)
+        
+        #accumulate gradient (backprop)
+        loss.backward()
+
+        optimizer.step() #update
+
+        valid_loss+=loss.item() #item get the loss value
+        y_true = torch.cat((y_true, targets)) #labels
+
+        #don't forget sigmoid
+        out = torch.sigmoid(out)
+        y_pred =torch.cat((y_pred,out))
+
+    output['total_score'] = compute_auc(y_true.detach().cpu().numpy().flatten(),y_pred.detach().cpu().numpy().flatten())['auc']
+    output['total_loss'] = valid_loss
     return output['total_score'], output['total_loss']
