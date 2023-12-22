@@ -2,3 +2,5 @@
 __pycache__/
 *.npz
 __init__.py
+.DS_Store
+.vscode
